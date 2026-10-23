@@ -13,16 +13,18 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const P = require('pino');
 
 const OWNER_NUMBER = "254707734799";
-const STARTER_WORDS = ["rada mzee","rada","sasa","mambo","hey","hi","hello","niaje","uko","poa","semaje","vipi","yo","habari","alo","woza","marada","yobi",];
+const STARTER_WORDS = ["rada mzee","rada","sasa","mambo","hey","hi","hello","niaje","uko","poa","semaje","vipi","yo","habari","alo","yobi","woza"];
+const FOUR_HOURS = 4 * 60 * 60 * 1000;
 
 const userState = new Map();
+const cooldown = new Map();
 
 async function googleSearch(q){
   try{
     const r = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1`);
     const d = await r.json();
-    return d.AbstractText || d.Results?.[0]?.Text || `I searched "${q}" - Brian will get back with details soon. Anything else?`;
-  }catch(e){ return `Got it - "${q}". Brian will check soon. Need anything else?`; }
+    return d.AbstractText || d.Results?.[0]?.Text || `Results for "${q}"`;
+  }catch(e){ return `Info about "${q}"`; }
 }
 
 async function startBot(){
@@ -37,22 +39,38 @@ async function startBot(){
 
   sock.ev.on('messages.upsert',async({messages})=>{
     for(let m of messages){
-      if(!m.message||m.key.fromMe) continue;
-      const from=m.key.remoteJid; if(from.endsWith('@g.us')) continue;
-      const text=m.message.conversation||m.message.extendedTextMessage?.text||""; if(!text) continue;
+      if(!m.message) continue;
+      const from=m.key.remoteJid; 
+      if(from.endsWith('@g.us')) continue;
+      const isFromMe = m.key.fromMe;
+      const text=m.message.conversation||m.message.extendedTextMessage?.text||""; 
+      if(!text) continue;
       const lower=text.toLowerCase().trim();
-      const isOwner=from.includes(OWNER_NUMBER);
+      const isOwnerChat = from.includes(OWNER_NUMBER);
 
-      if(isOwner && lower===".off"){ BOT_ENABLED=false; userState.clear(); await sock.sendMessage(from,{text:"🔴 OFF"}); continue; }
-      if(isOwner && lower===".on"){ BOT_ENABLED=true; await sock.sendMessage(from,{text:"🟢 ON"}); continue; }
+      if(isFromMe){
+        if(!isOwnerChat){
+          userState.delete(from);
+          cooldown.set(from, Date.now());
+        }
+        if(isOwnerChat && lower===".off"){ BOT_ENABLED=false; userState.clear(); await sock.sendMessage(from,{text:"🔴 OFF"}); continue; }
+        if(isOwnerChat && lower===".on"){ BOT_ENABLED=true; cooldown.clear(); await sock.sendMessage(from,{text:"🟢 ON"}); continue; }
+        continue;
+      }
+
       if(!BOT_ENABLED) continue;
+
+      if(cooldown.has(from)){
+        if(Date.now() - cooldown.get(from) < FOUR_HOURS) continue;
+        cooldown.delete(from);
+      }
 
       const s = userState.get(from);
 
       if(s){
         if(s.stage===1){
           await new Promise(r=>setTimeout(r,2000));
-          await sock.sendMessage(from,{text:"Good, wossap?"});
+          await sock.sendMessage(from,{text:"Good, Wossap?"});
           userState.set(from,{stage:2});
           continue;
         }
@@ -60,15 +78,21 @@ async function startBot(){
           await new Promise(r=>setTimeout(r,2000));
           await sock.sendMessage(from,{text:"I will get back to you shortly, I'm Brian's bot not him.. he'll be back soon"});
           await new Promise(r=>setTimeout(r,1000));
-          await sock.sendMessage(from,{text:"Do you need any services from me, his AI assistant? I can look into anything you want from Google - just ask"});
+          await sock.sendMessage(from,{text:"Do you need any services from me, his AI assistant? I can look into anything you want from Google - just ask (use \"\" to search) e.g. \"weather in Nairobi\""});
           userState.set(from,{stage:3});
           continue;
         }
         if(s.stage===3){
-          if(["no","hapana","sawa"].includes(lower)){ await sock.sendMessage(from,{text:"Sawa, Brian will get back soon."}); userState.delete(from); continue; }
-          await sock.sendPresenceUpdate('composing',from);
-          const ans = await googleSearch(text);
-          await sock.sendMessage(from,{text:ans});
+          const quoted = text.match(/"([^"]+)"/);
+          if(quoted){
+            await sock.sendPresenceUpdate('composing',from);
+            const ans = await googleSearch(quoted[1]);
+            await sock.sendMessage(from,{text:ans});
+          }else{
+            await sock.sendMessage(from,{text:"My master  his Excellency Brian will get back to you shortly"});
+            userState.delete(from);
+            cooldown.set(from, Date.now());
+          }
           continue;
         }
       }
