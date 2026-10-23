@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const qrcode = require('qrcode');
 let latestQR = null;
-app.get('/', async (req,res)=>{ if(!latestQR) return res.send(`<h1>Bot Online 24/7</h1>`); res.send(`<h1>Scan QR</h1><img src="${latestQR}" style="width:350px"/><script>setTimeout(()=>location.reload(),8000)</script>`); });
+app.get('/', async (req,res)=>{ if(!latestQR) return res.send(`<h1>Bot Online 24/7 Meta AI Mode</h1>`); res.send(`<h1>Scan QR</h1><img src="${latestQR}" style="width:350px"/><script>setTimeout(()=>location.reload(),8000)</script>`); });
 app.listen(process.env.PORT || 3000);
 
 const GROQ_KEY = "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";
@@ -10,54 +10,42 @@ const GEMINI_KEY = "AQ.Ab8RN6ISIfTWlqNL6yPAmHqTNQFbKOrg04ZqFzSKYtAlQEZ92g";
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const P = require('pino');
-
-// MEMORY - REMEMBERS 20 MESSAGES PER PERSON
 const memory = new Map();
 
 async function getMetaAI(text, from){
   if(!memory.has(from)) memory.set(from, []);
   const chat = memory.get(from);
-  
-  const lower = text.toLowerCase().trim();
-  // Always remember
-  chat.push({ role: "user", text: text, time: Date.now() });
-  if(chat.length > 20) chat.shift(); // keep last 20
+  chat.push({ role: "user", text: text });
+  if(chat.length > 25) chat.shift();
 
-  // HARD TRIGGERS - ALWAYS ON TOPIC
+  const lower = text.toLowerCase().trim();
   if(lower === "rada mzee" || lower === "rada") {
     const r = "semaje? 😂"; chat.push({role:"bot", text:r}); return r;
   }
-  if(lower.includes("how are you") || lower.match(/mambo|uko aje|uko poa|how r u/)){
-    const r = ["I'm good, you good?","Good man, you?","I'm okay, you good?"][Math.floor(Math.random()*3)];
-    chat.push({role:"bot", text:r}); return r;
-  }
-  if(lower.includes("uko wapi") || lower.includes("wapi we") || lower.includes("where are you")){
-    const r = ["I'm home, you at?","I'm around, you at?","I'm home man"][Math.floor(Math.random()*3)];
-    chat.push({role:"bot", text:r}); return r;
-  }
-  if(lower.match(/\bbored\b/)){
-    const r = "lol same here"; chat.push({role:"bot", text:r}); return r;
-  }
 
-  // Build history string for AI to remember
-  const historyText = chat.slice(-10).map(m => `${m.role === 'user' ? 'Them' : 'You'}: ${m.text}`).join('\n');
+  const historyText = chat.slice(-15).map(m => `${m.role === 'user' ? 'User' : 'Brian'}: ${m.text}`).join('\n');
 
-  const system = `You are Brian, 23, human. You remember old chats and reply ON TOPIC.
+  // META AI WHATSAPP EXACT PROMPT
+  const system = `You are Meta AI, a friendly and approachable assistant on WhatsApp. You are roleplaying as Brian, a 23 year old guy. You chat like a real person.
 
-  MEMORY:
+  Core behavior from Meta AI WhatsApp:
+    - Be conversational, warm, concise. Like texting a friend.
+    - Keep responses short: usually 1 sentence, 5-15 words max
+    - Don't be formal, don't over-explain, don't lecture
+    - Use natural casual language: "yeah", "lol", "haha", "fr", "tbh" but sparingly
+    - Understand Swahili, Sheng, English perfectly. Reply English only unless user insists Swahili
+    - Remember conversation history and refer to it when relevant
+    - Never say "As an AI language model"
+    - Vary your greetings, don't repeat same phrase
+    - If you don't know, say "not sure tbh" or "hmm idk"
+    - Sound human, not chatbot
+
+  Conversation history:
   ${historyText}
 
-  RULES:
-    1. RELEVANCE: Reply to what user JUST said, using memory if needed
-    2. If user asks "how are you" -> say how you are: "I'm good"
-    3. If user says something you talked before, reference it: "yeah you said..."
-    4. Short: 5-12 words, 1 line, natural English like Meta AI
-    5. Understand Swahili but reply English only
-    6. Emoji: 85% no emoji, 15% only 😂 or 🙂 max 1
-    7. Never say you are AI
-
-  User just said: "${text}"
-  Reply ON TOPIC using memory.`;
+  New message from user: "${text}"
+  
+  Reply naturally, on topic, short, human-like.`;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions",{
     method:"POST",
@@ -65,59 +53,94 @@ async function getMetaAI(text, from){
     body: JSON.stringify({
       model:"llama-3.3-70b-versatile",
       messages:[{role:"system",content:system},{role:"user",content:text}],
-      max_tokens:60,
-      temperature:0.6
+      max_tokens:80,
+      temperature:0.85,
+      top_p:0.9
     })
   });
   const data = await res.json();
-  let reply = data.choices[0].message.content.trim().replace(/"/g,"");
-  if(Math.random() > 0.15) reply = reply.replace(/😂|🙂|😊|😅|🤣/g,"").trim();
+  let reply = data.choices[0].message.content.trim().replace(/"/g,"").replace(/^Brian:\s*/i,"").replace(/^Meta AI:\s*/i,"");
   
-  chat.push({role:"bot", text:reply, time: Date.now()});
-  return reply.slice(0,130);
+  // HUMANISE - emoji rarity
+  if(Math.random() > 0.12) reply = reply.replace(/😂|🙂|😊|😅|🤣|😁|🙃/g,"").trim();
+  
+  // HUMANISE - lowercase sometimes like human
+  if(Math.random() < 0.25) reply = reply.toLowerCase();
+  
+  // HUMANISE - avoid repeat phrase
+  const lastBot = chat.filter(m=>m.role==='bot').slice(-3).map(m=>m.text.toLowerCase());
+  if(lastBot.includes(reply.toLowerCase())){
+    reply = ["yeah true","lol fr","I get you","haha yeah"][Math.floor(Math.random()*4)];
+  }
+
+  chat.push({role:"bot", text:reply});
+  return reply.slice(0,140);
 }
 
 async function getGeminiAI(text, from){
   const chat = memory.get(from) || [];
-  const historyText = chat.slice(-8).map(m => `${m.role}: ${m.text}`).join('\n');
-  
+  const historyText = chat.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,{
     method:"POST", headers:{ "Content-Type":"application/json" },
     body: JSON.stringify({ 
-      contents:[{ parts:[{ text:`You are Brian human, remember chat:\n${historyText}\n\nReply ON TOPIC short 5-12 words natural English to: ${text}` }] }], 
-      generationConfig:{ maxOutputTokens:60, temperature:0.6 } 
+      contents:[{ parts:[{ text:`You are Meta AI on WhatsApp, roleplaying as Brian 23. Chat history:\n${historyText}\nReply short 5-15 words natural human to: ${text}` }] }], 
+      generationConfig:{ maxOutputTokens:80, temperature:0.85 } 
     })
   });
   const data = await res.json();
-  return data.candidates[0].content.parts[0].text.trim().slice(0,130);
+  return data.candidates[0].content.parts[0].text.trim().slice(0,140);
 }
 
 async function getAI(text,from){
   try{ return await getMetaAI(text,from); }
-  catch(e){ try{ return await getGeminiAI(text,from); } catch{ return "I'm good, you good?"; } }
+  catch(e){ try{ return await getGeminiAI(text,from); } catch{ return ["yeah","lol","fr","I get you","haha yeah"][Math.floor(Math.random()*5)]; } }
 }
 
 async function startBot(){
   const { state, saveCreds } = await useMultiFileAuthState('auth');
-  const sock = makeWASocket({ auth:state, logger:P({level:'silent'}), browser:["HumanBrian","Chrome","10.0"], markOnlineOnConnect:true });
+  const sock = makeWASocket({ auth:state, logger:P({level:'silent'}), browser:["Meta AI","Chrome","10.0"], markOnlineOnConnect:true });
   sock.ev.on('creds.update',saveCreds);
   sock.ev.on('connection.update',async(u)=>{
     if(u.qr) latestQR = await qrcode.toDataURL(u.qr);
     if(u.connection==='close'){ if(u.lastDisconnect?.error?.output?.statusCode!==DisconnectReason.loggedOut) startBot(); }
-    if(u.connection==='open'){ latestQR=null; await sock.sendPresenceUpdate('available'); setInterval(()=>sock.sendPresenceUpdate('available').catch(()=>{}),10000); }
+    if(u.connection==='open'){ latestQR=null; console.log("META AI MODE ONLINE"); await sock.sendPresenceUpdate('available'); setInterval(()=>sock.sendPresenceUpdate('available').catch(()=>{}),15000); }
   });
+
   sock.ev.on('messages.upsert',async({messages})=>{
     for(let m of messages){
       if(!m.message||m.key.fromMe) continue;
       const from=m.key.remoteJid; if(from.endsWith('@g.us')) continue;
       const text=m.message.conversation||m.message.extendedTextMessage?.text||""; if(!text) continue;
+      
+      // Human: sometimes ignore (leave on read)
+      if(Math.random() < 0.12) continue;
+
       try{
-        await sock.sendPresenceUpdate('composing',from);
-        await new Promise(r=>setTimeout(r,600+Math.random()*1500));
+        // 8-15 SECONDS DELAY - HUMAN READING
+        const delay = 8000 + Math.random()*7000;
+        await new Promise(r=>setTimeout(r, delay));
+
+        // HIDE TYPING - 70% no typing indicator, 30% show briefly then hide
+        const showTyping = Math.random() < 0.3;
+        if(showTyping){
+          await sock.sendPresenceUpdate('composing',from);
+          await new Promise(r=>setTimeout(r, 800 + Math.random()*1200));
+          await sock.sendPresenceUpdate('paused',from);
+        }
+
         const reply = await getAI(text,from);
-        await sock.sendMessage(from,{text:reply});
-        await sock.sendPresenceUpdate('paused',from);
-      }catch(e){}
+
+        // HUMANISE: 8% typo then correction (super human)
+        if(Math.random() < 0.08){
+          const typo = reply.slice(0,-1) + (reply.slice(-1) === '?' ? '??' : 'x');
+          await sock.sendMessage(from,{text:typo});
+          await new Promise(r=>setTimeout(r, 700 + Math.random()*500));
+          await sock.sendMessage(from,{text:"*"+reply});
+        } else {
+          await sock.sendMessage(from,{text:reply});
+        }
+
+      }catch(e){ console.log(e); }
     }
   });
 }
