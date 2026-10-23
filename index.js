@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express();
 const qrcode = require('qrcode');
-const 【entity-axios¦canonical_name=axios】 = require('【entity-axios¦canonical_name=axios】');
+const axios = require('axios');
 let latestQR = null;
 
 app.get('/', async (req, res) => {
